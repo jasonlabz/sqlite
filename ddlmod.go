@@ -12,16 +12,27 @@ import (
 )
 
 var (
-	sqliteSeparator    = "`|\"|'|\t"
-	uniqueRegexp       = regexp.MustCompile(fmt.Sprintf(`^CONSTRAINT [%v]?[\w-]+[%v]? UNIQUE (.*)$`, sqliteSeparator, sqliteSeparator))
-	indexRegexp        = regexp.MustCompile(fmt.Sprintf(`(?is)CREATE(?: UNIQUE)? INDEX [%v]?[\w\d-]+[%v]?(?s:.*?)ON (.*)$`, sqliteSeparator, sqliteSeparator))
-	tableRegexp        = regexp.MustCompile(fmt.Sprintf(`(?is)(CREATE TABLE [%v]?[\w\d-]+[%v]?)(?:\s*\((.*)\))?`, sqliteSeparator, sqliteSeparator))
-	separatorRegexp    = regexp.MustCompile(fmt.Sprintf("[%v]", sqliteSeparator))
-	columnsRegexp      = regexp.MustCompile(fmt.Sprintf(`[(,][%v]?(\w+)[%v]?`, sqliteSeparator, sqliteSeparator))
-	columnRegexp       = regexp.MustCompile(fmt.Sprintf(`^[%v]?([\w\d]+)[%v]?\s+([\w\(\)\d]+)(.*)$`, sqliteSeparator, sqliteSeparator))
-	defaultValueRegexp = regexp.MustCompile(`(?i) DEFAULT \(?(.+)?\)?( |COLLATE|GENERATED|$)`)
-	regRealDataType    = regexp.MustCompile(`[^\d](\d+)[^\d]?`)
+	sqliteSeparator = "`|\"|'|\t"
+	uniqueRegexp    = regexp.MustCompile(fmt.Sprintf(`^CONSTRAINT [%v]?[\w-]+[%v]? UNIQUE (.*)$`, sqliteSeparator, sqliteSeparator))
+	indexRegexp     = regexp.MustCompile(fmt.Sprintf(`(?is)CREATE(?: UNIQUE)? INDEX [%v]?[\w\d-]+[%v]?(?s:.*?)ON (.*)$`, sqliteSeparator, sqliteSeparator))
+	tableRegexp     = regexp.MustCompile(fmt.Sprintf(`(?is)(CREATE TABLE [%v]?[\w\d-]+[%v]?)(?:\s*\((.*)\))?`, sqliteSeparator, sqliteSeparator))
+	separatorRegexp = regexp.MustCompile(fmt.Sprintf("[%v]", sqliteSeparator))
+	columnsRegexp   = regexp.MustCompile(fmt.Sprintf(`[(,][%v]?(\w+)[%v]?`, sqliteSeparator, sqliteSeparator))
+	columnRegexp    = regexp.MustCompile(fmt.Sprintf(`^[%v]?([\w\d]+)[%v]?\s+([\w\(\)\d]+)(.*)$`, sqliteSeparator, sqliteSeparator))
+	// 优化默认值正则：更精确匹配默认值部分
+	defaultValueRegexp = regexp.MustCompile(`(?i)DEFAULT\s+((?:'[^']*'|"[^"]*"|CURRENT_TIMESTAMP|COLLATE|GENERATED|\S+))(?:$|\s)`)
+	regRealDataType    = regexp.MustCompile(`(\d+)`)
+	// 新增注释正则
+	commentRegexp = regexp.MustCompile(`/\*.*?\*/|--.*`)
 )
+
+// 新增：预处理函数
+func cleanDDL(ddl string) string {
+	// 移除注释
+	ddl = commentRegexp.ReplaceAllString(ddl, "")
+	// 合并多余空格
+	return strings.Join(strings.Fields(ddl), " ")
+}
 
 func getAllColumns(s string) []string {
 	allMatches := columnsRegexp.FindAllStringSubmatch(s, -1)
@@ -43,7 +54,9 @@ type ddl struct {
 func parseDDL(strs ...string) (*ddl, error) {
 	var result ddl
 	for _, str := range strs {
-		if sections := tableRegexp.FindStringSubmatch(str); len(sections) > 0 {
+		// 预处理DDL
+		cleanedStr := cleanDDL(str)
+		if sections := tableRegexp.FindStringSubmatch(cleanedStr); len(sections) > 0 {
 			var (
 				ddlBody      = sections[2]
 				ddlBodyRunes = []rune(ddlBody)
